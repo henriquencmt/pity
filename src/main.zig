@@ -1,27 +1,49 @@
 const std = @import("std");
-const pity = @import("pity");
+const win = std.os.windows;
 
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try pity.bufferedPrint();
-}
+    const allocator = std.heap.page_allocator;
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
 
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
+    _ = args.next();
 
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
+    const sh = if (args.next()) |arg|
+        std.mem.sliceTo(arg, 0)
+    else
+        // default shell
+        try std.process.getEnvVarOwned(allocator, "COMSPEC");
+
+    const sh_utf16_raw = try std.unicode.utf8ToUtf16LeAlloc(allocator, sh);
+    defer allocator.free(sh_utf16_raw);
+
+    const sh_utf16 = try allocator.allocSentinel(u16, sh_utf16_raw.len, 0);
+    std.mem.copyForwards(u16, sh_utf16[0..sh_utf16_raw.len], sh_utf16_raw);
+
+    var startupinfow: win.STARTUPINFOW = std.mem.zeroes(win.STARTUPINFOW);
+    startupinfow.cb = @sizeOf(win.STARTUPINFOW);
+    startupinfow.dwFlags = win.STARTF_USESTDHANDLES;
+    startupinfow.hStdInput = try win.GetStdHandle(win.STD_INPUT_HANDLE);
+    startupinfow.hStdOutput = try win.GetStdHandle(win.STD_OUTPUT_HANDLE);
+    startupinfow.hStdError = try win.GetStdHandle(win.STD_ERROR_HANDLE);
+
+    var process_info: win.PROCESS_INFORMATION = std.mem.zeroes(win.PROCESS_INFORMATION);
+
+    try win.CreateProcessW(
+        null,
+        @constCast(sh_utf16.ptr),
+        null,
+        null,
+        win.TRUE,
+        .{},
+        null,
+        null,
+        &startupinfow,
+        &process_info,
+    );
+
+    try win.WaitForSingleObject(process_info.hProcess, win.INFINITE);
+
+    win.CloseHandle(process_info.hProcess);
+    win.CloseHandle(process_info.hThread);
 }
