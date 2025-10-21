@@ -1,12 +1,90 @@
 const std = @import("std");
 const win = std.os.windows;
 
+const HPCON = win.LPVOID;
+const LPPROC_THREAD_ATTRIBUTE_LIST = ?*anyopaque;
+
+const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: win.DWORD_PTR = 131_094;
+
+extern "kernel32" fn InitializeProcThreadAttributeList(
+    lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST,
+    dwAttributeCount: win.DWORD,
+    dwFlags: win.DWORD,
+    lpSize: *win.SIZE_T,
+) callconv(.winapi) win.BOOL;
+
+extern "kernel32" fn UpdateProcThreadAttribute(
+    lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST,
+    dwFlags: win.DWORD,
+    Attribute: win.DWORD_PTR,
+    lpValue: *win.PVOID,
+    cbSize: win.SIZE_T,
+    lpPreviousValue: ?win.PVOID,
+    lpReturnSize: ?*win.SIZE_T,
+) callconv(.winapi) win.BOOL;
+
+extern "kernel32" fn CreatePseudoConsole(
+    size: win.COORD,
+    hInput: win.HANDLE,
+    hOutput: win.HANDLE,
+    dwFlags: win.DWORD,
+    phPC: *HPCON,
+) callconv(.winapi) win.HRESULT;
+
+const STARTUPINFOEXW = extern struct {
+    StartupInfo: win.STARTUPINFOW,
+    lpAttributeList: LPPROC_THREAD_ATTRIBUTE_LIST,
+};
+
 const BUFSIZE = 4096;
 
 var g_hChildStd_IN_Rd: win.HANDLE = undefined;
 var g_hChildStd_IN_Wr: win.HANDLE = undefined;
 var g_hChildStd_OUT_Rd: win.HANDLE = undefined;
 var g_hChildStd_OUT_Wr: win.HANDLE = undefined;
+
+fn PrepareStartupInformation(allocator: std.mem.Allocator, hpc: *HPCON, psi: *STARTUPINFOEXW) !win.HRESULT {
+    var si: STARTUPINFOEXW = std.mem.zeroes(STARTUPINFOEXW);
+    si.StartupInfo.cb = @sizeOf(STARTUPINFOEXW);
+    si.StartupInfo.dwFlags = win.STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = g_hChildStd_IN_Rd;
+    si.StartupInfo.hStdOutput = g_hChildStd_OUT_Wr;
+    si.StartupInfo.hStdError = g_hChildStd_OUT_Wr;
+
+    var bytesRequired: win.SIZE_T = undefined;
+    _ = InitializeProcThreadAttributeList(null, 1, 0, &bytesRequired);
+
+    const lpAttributeList = try allocator.alloc(u8, bytesRequired);
+
+    if (InitializeProcThreadAttributeList(
+        lpAttributeList.ptr,
+        1,
+        0,
+        &bytesRequired,
+    ) == 0) {
+        allocator.free(lpAttributeList);
+        return win.unexpectedError(win.GetLastError());
+    }
+
+    if (UpdateProcThreadAttribute(
+        lpAttributeList.ptr,
+        0,
+        PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+        hpc,
+        @sizeOf(HPCON),
+        null,
+        null,
+    ) == 0) {
+        allocator.free(lpAttributeList);
+        return win.unexpectedError(win.GetLastError());
+    }
+
+    si.lpAttributeList = lpAttributeList.ptr;
+
+    psi.* = si;
+
+    return win.S_OK;
+}
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -39,12 +117,21 @@ pub fn main() !void {
     try win.CreatePipe(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
     try win.SetHandleInformation(g_hChildStd_IN_Wr, win.HANDLE_FLAG_INHERIT, 0);
 
-    var startupinfow: win.STARTUPINFOW = std.mem.zeroes(win.STARTUPINFOW);
-    startupinfow.cb = @sizeOf(win.STARTUPINFOW);
-    startupinfow.dwFlags = win.STARTF_USESTDHANDLES;
-    startupinfow.hStdInput = g_hChildStd_IN_Rd;
-    startupinfow.hStdOutput = g_hChildStd_OUT_Wr;
-    startupinfow.hStdError = g_hChildStd_OUT_Wr;
+    var hpc: HPCON = undefined;
+    if (CreatePseudoConsole(
+        .{ .X = 1, .Y = 1 },
+        g_hChildStd_IN_Rd,
+        g_hChildStd_OUT_Wr,
+        0,
+        &hpc,
+    ) != win.S_OK) return win.unexpectedError(win.GetLastError());
+
+    var psi: STARTUPINFOEXW = undefined;
+    if (try PrepareStartupInformation(
+        allocator,
+        &hpc,
+        &psi,
+    ) != win.S_OK) return;
 
     var process_info: win.PROCESS_INFORMATION = std.mem.zeroes(win.PROCESS_INFORMATION);
     defer win.CloseHandle(process_info.hProcess);
@@ -56,10 +143,10 @@ pub fn main() !void {
         null, // process security attributes
         null, // primary thread security attributes
         win.TRUE, // handles are inherited
-        .{}, // creation flags
+        .{ .extended_startupinfo_present = true, .create_no_window = true }, // creation flags
         null, // use parent's environment
         null, // use parent's current directory
-        &startupinfow, // STARTUPINFO pointer
+        &psi.StartupInfo, // STARTUPINFO pointer
         &process_info, // receives PROCESS_INFORMATION
     );
 
