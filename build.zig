@@ -83,6 +83,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    exe.linkLibC();
+    exe.linkSystemLibrary("user32");
+    exe.linkSystemLibrary("kernel32");
+
+    const vulkan_sdk = "C:/VulkanSDK/1.4.328.1/";
+    exe.addIncludePath(.{ .cwd_relative = vulkan_sdk ++ "Include" });
+    exe.addIncludePath(.{ .cwd_relative = vulkan_sdk ++ "Include/vulkan" });
+    exe.addLibraryPath(.{ .cwd_relative = vulkan_sdk ++ "Lib" });
+    exe.linkSystemLibrary("vulkan-1");
+
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
     // step). By default the install prefix is `zig-out/` but can be overridden
