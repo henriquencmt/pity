@@ -306,7 +306,7 @@ pub fn wWinMain(
 pub fn runMessageLoop() !c_int {
     var msg: MSG = undefined;
     while (GetMessageW(&msg, null, 0, 0) > 0) {
-        std.debug.print("msg: {any}\n", .{msg});
+        //std.debug.print("msg: {any}\n", .{msg});
         _ = TranslateMessage(&msg);
         _ = DispatchMessageW(&msg);
     }

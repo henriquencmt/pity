@@ -89,7 +89,6 @@ pub fn build(b: *std.Build) void {
 
     const vulkan_sdk = "C:/VulkanSDK/1.4.328.1/";
     exe.addIncludePath(.{ .cwd_relative = vulkan_sdk ++ "Include" });
-    exe.addIncludePath(.{ .cwd_relative = vulkan_sdk ++ "Include/vulkan" });
     exe.addLibraryPath(.{ .cwd_relative = vulkan_sdk ++ "Lib" });
     exe.linkSystemLibrary("vulkan-1");
 
