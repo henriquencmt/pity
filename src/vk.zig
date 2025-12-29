@@ -1,7 +1,7 @@
 const std = @import("std");
 const win = std.os.windows;
 
-const c = @cImport({
+pub const c = @cImport({
     @cDefine("VK_USE_PLATFORM_WIN32_KHR", {});
     @cInclude("vulkan/vulkan.h");
 });
@@ -69,10 +69,10 @@ in_flight_fences: []c.VkFence,
 pub fn init(
     allocator: std.mem.Allocator,
     hinstance: win.HINSTANCE,
-    window_hwnd: win.HWND,
+    hwnd: c.HWND,
 ) !@This() {
     const vk_instance = try createInstance();
-    const surface = try createSurface(vk_instance, hinstance, window_hwnd);
+    const surface = try createSurface(vk_instance, hinstance, hwnd);
 
     // TODO let user specify which device to use (user_set_device param)
 
@@ -257,7 +257,7 @@ fn createInstance() !c.VkInstance {
     return instance;
 }
 
-fn createSurface(vk_instance: c.VkInstance, hinstance: win.HINSTANCE, window_hwnd: win.HWND) !c.VkSurfaceKHR {
+fn createSurface(vk_instance: c.VkInstance, hinstance: win.HINSTANCE, hwnd: c.HWND) !c.VkSurfaceKHR {
     var surface: c.VkSurfaceKHR = undefined;
 
     const create_info = c.VkWin32SurfaceCreateInfoKHR{
@@ -265,7 +265,7 @@ fn createSurface(vk_instance: c.VkInstance, hinstance: win.HINSTANCE, window_hwn
         .pNext = null,
         .flags = 0,
         .hinstance = @ptrCast(@alignCast(@constCast(hinstance))),
-        .hwnd = @ptrCast(@alignCast(@constCast(window_hwnd))),
+        .hwnd = hwnd,
     };
 
     std.debug.assert(c.vkCreateWin32SurfaceKHR(vk_instance, &create_info, null, &surface) == c.VK_SUCCESS);

@@ -1,5 +1,6 @@
 const std = @import("std");
 const win = std.os.windows;
+const vk = @import("vk.zig");
 
 pub const CHAR = win.CHAR;
 pub const HPCON = win.LPVOID;
@@ -62,7 +63,7 @@ const WNDCLASSEXW = extern struct {
     hIconSm: ?win.HICON,
 };
 
-const MSG = extern struct {
+pub const MSG = extern struct {
     hWnd: ?win.HWND,
     message: win.UINT,
     wParam: win.WPARAM,
@@ -123,20 +124,20 @@ extern "user32" fn CreateWindowExW(
     hMenu: ?win.HMENU,
     hInstance: ?win.HINSTANCE,
     lpParam: ?win.LPVOID,
-) callconv(.winapi) win.HWND;
+) callconv(.winapi) vk.c.HWND;
 
-extern "user32" fn ShowWindow(hWnd: win.HWND, nCmdShow: i32) callconv(.winapi) win.BOOL;
+extern "user32" fn ShowWindow(hWnd: vk.c.HWND, nCmdShow: i32) callconv(.winapi) win.BOOL;
 
-extern "user32" fn GetMessageW(
+pub extern "user32" fn GetMessageW(
     lpMsg: *MSG,
     hWnd: ?win.HWND,
     wMsgFilterMin: win.UINT,
     wMsgFilterMax: win.UINT,
 ) callconv(.winapi) win.BOOL;
 
-extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.winapi) win.BOOL;
+pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.winapi) win.BOOL;
 
-extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(.winapi) win.LRESULT;
+pub extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(.winapi) win.LRESULT;
 
 extern "user32" fn DefWindowProcW(
     hWnd: win.HWND,
@@ -213,19 +214,25 @@ pub fn PrepareStartupInformation(
 
 pub fn WriteToPipe(command: []const win.CHAR, handle: win.HANDLE) !void {
     _ = win.WriteFile(handle, command, null) catch {};
-    win.CloseHandle(handle);
+    //win.CloseHandle(handle);
 }
 
 pub fn ReadFromPipe(handle: win.HANDLE, bufsize: comptime_int, read_handle: win.HANDLE) !void {
     var dwRead: usize = undefined;
     var chBuf: [bufsize]win.CHAR = undefined;
 
+    std.debug.print("2 before loop\n", .{});
     while (true) {
+        std.debug.print("2.1 read\n", .{});
         dwRead = try win.ReadFile(read_handle, &chBuf, null);
         if (dwRead == 0) break;
 
+        std.debug.print("2.2 write\n", .{});
         _ = win.WriteFile(handle, chBuf[0..dwRead], null) catch {};
+        std.debug.print("\n2.3 end\n", .{});
     }
+
+    std.debug.print("2 after loop\n", .{});
     win.CloseHandle(read_handle);
 }
 
@@ -260,7 +267,7 @@ pub fn wWinMain(
     hPrevInstance: ?win.HINSTANCE,
     pCmdLine: ?win.PWSTR,
     nCmdShow: c_int,
-) !win.HWND {
+) !vk.c.HWND {
     _ = hPrevInstance;
     _ = pCmdLine;
 
@@ -279,7 +286,7 @@ pub fn wWinMain(
     defer allocator.free(window_name_raw);
     const WINDOW_NAME = try allocator.allocSentinel(u16, window_name_raw.len, 0);
     std.mem.copyForwards(u16, WINDOW_NAME[0..window_name_raw.len], window_name_raw);
-    const hwnd: win.HWND = CreateWindowExW(
+    const hwnd: vk.c.HWND = CreateWindowExW(
         0, // Optional window styles.
         CLASS_NAME, // Window class
         WINDOW_NAME, // Window text

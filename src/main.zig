@@ -14,12 +14,19 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     const hInstance: win.HINSTANCE = @ptrCast(win.GetModuleHandleW(null));
-    const window_hwnd = try win.wWinMain(allocator, hInstance, null, null, 3);
+    const hwnd = try win.wWinMain(allocator, hInstance, null, null, 3);
 
-    const vk_renderer = try vk.init(allocator, hInstance, window_hwnd);
+    const vk_renderer = try vk.init(allocator, hInstance, hwnd);
     defer vk_renderer.destroy();
 
-    _ = try win.runMessageLoop();
+    var msg: win.MSG = undefined;
+    while (win.GetMessageW(&msg, null, 0, 0) > 0) {
+        //std.debug.print("msg: {any}\n", .{msg});
+        _ = win.TranslateMessage(&msg);
+        _ = win.DispatchMessageW(&msg);
+
+        try vk_renderer.drawFrame();
+    }
 
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
@@ -87,12 +94,25 @@ pub fn main() !void {
     win.CloseHandle(g_hChildStd_IN_Rd);
     win.CloseHandle(g_hChildStd_OUT_Wr);
 
-    const command: []const win.CHAR = "echo Hello from Command Prompt!\n";
-    try win.WriteToPipe(command, g_hChildStd_IN_Wr);
-
     const hParentStdOut: win.HANDLE = try win.GetStdHandle(win.STD_OUTPUT_HANDLE);
     defer win.CloseHandle(hParentStdOut);
-    try win.ReadFromPipe(hParentStdOut, BUFSIZE, g_hChildStd_OUT_Rd);
+
+    std.debug.print("1 spawning read thread\n", .{});
+    const read_thread = try std.Thread.spawn(.{}, win.ReadFromPipe, .{ hParentStdOut, BUFSIZE, g_hChildStd_OUT_Rd });
+    read_thread.detach();
+
+    std.debug.print("1 pre loop\n", .{});
+    for (0..5) |_| {
+        std.debug.print("1 writing to pipe\n", .{});
+        const command: []const win.CHAR = "echo Hello from Command Prompt!\n";
+        try win.WriteToPipe(command, g_hChildStd_IN_Wr);
+
+        std.debug.print("\n1 end\n", .{});
+    }
+    std.debug.print("1 post loop\n", .{});
+
+    win.CloseHandle(g_hChildStd_IN_Wr);
+    //win.CloseHandle(g_hChildStd_OUT_Rd);
 
     try win.WaitForSingleObject(process_info.hProcess, win.INFINITE);
 }
