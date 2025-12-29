@@ -97,19 +97,75 @@ pub fn main() !void {
     const hParentStdOut: win.HANDLE = try win.GetStdHandle(win.STD_OUTPUT_HANDLE);
     defer win.CloseHandle(hParentStdOut);
 
-    std.debug.print("1 spawning read thread\n", .{});
     const read_thread = try std.Thread.spawn(.{}, win.ReadFromPipe, .{ hParentStdOut, BUFSIZE, g_hChildStd_OUT_Rd });
     read_thread.detach();
 
-    std.debug.print("1 pre loop\n", .{});
-    for (0..5) |_| {
-        std.debug.print("1 writing to pipe\n", .{});
-        const command: []const win.CHAR = "echo Hello from Command Prompt!\n";
-        try win.WriteToPipe(command, g_hChildStd_IN_Wr);
+    const hstdin = try win.GetStdHandle(win.STD_INPUT_HANDLE);
 
-        std.debug.print("\n1 end\n", .{});
+    var mode: win.DWORD = 0;
+    if (win.GetConsoleMode(hstdin, &mode) == 0)
+        return win.unexpectedError(win.GetLastError());
+
+    mode &= ~win.ENABLE_LINE_INPUT;
+    mode &= ~win.ENABLE_ECHO_INPUT;
+
+    if (win.SetConsoleMode(hstdin, mode) == 0)
+        return win.unexpectedError(win.GetLastError());
+
+    var input_buf: [BUFSIZE]u16 = undefined;
+    var chars_read: win.DWORD = 0;
+
+    var line_len: usize = 0;
+    var line_buf: [BUFSIZE]u16 = undefined;
+
+    while (true) {
+        if (win.ReadConsoleW(
+            hstdin,
+            &input_buf,
+            input_buf.len,
+            &chars_read,
+            null,
+        ) == 0) {
+            return win.unexpectedError(win.GetLastError());
+        }
+
+        if (chars_read == 0) continue;
+
+        for (0..chars_read) |i| {
+            const ch = input_buf[i];
+
+            switch (ch) {
+                0x000D => { // enter
+                    var utf8_buf: [BUFSIZE]u8 = undefined;
+
+                    const utf8_len = try std.unicode.utf16LeToUtf8(
+                        &utf8_buf,
+                        line_buf[0..line_len],
+                    );
+
+                    // append newline expected by cmd
+                    utf8_buf[utf8_len] = '\r';
+                    utf8_buf[utf8_len + 1] = '\n';
+
+                    try win.WriteToPipe(
+                        utf8_buf[0 .. utf8_len + 2],
+                        g_hChildStd_IN_Wr,
+                    );
+
+                    line_len = 0;
+                },
+                0x0008 => { // backspace
+                    if (line_len > 0) line_len -= 1;
+                },
+                else => {
+                    line_buf[line_len] = ch;
+                    line_len += 1;
+                },
+            }
+        }
+
+        std.debug.print("current input line: {any}\n", .{line_buf[0..line_len]});
     }
-    std.debug.print("1 post loop\n", .{});
 
     win.CloseHandle(g_hChildStd_IN_Wr);
     //win.CloseHandle(g_hChildStd_OUT_Rd);

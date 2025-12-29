@@ -4,6 +4,7 @@ const vk = @import("vk.zig");
 
 pub const CHAR = win.CHAR;
 pub const HPCON = win.LPVOID;
+pub const DWORD = win.DWORD;
 pub const HANDLE = win.HANDLE;
 pub const HINSTANCE = win.HINSTANCE;
 pub const SECURITY_ATTRIBUTES = win.SECURITY_ATTRIBUTES;
@@ -22,7 +23,10 @@ pub const TRUE = win.TRUE;
 pub const S_OK = win.S_OK;
 pub const INFINITE = win.INFINITE;
 pub const HANDLE_FLAG_INHERIT = win.HANDLE_FLAG_INHERIT;
+pub const STD_INPUT_HANDLE = win.STD_INPUT_HANDLE;
 pub const STD_OUTPUT_HANDLE = win.STD_OUTPUT_HANDLE;
+pub const ENABLE_LINE_INPUT: win.DWORD = 0x0002;
+pub const ENABLE_ECHO_INPUT: win.DWORD = 0x0004;
 
 const WS_OVERLAPPED = 0x00000000;
 const WS_CAPTION = WS_BORDER | WS_DLGFRAME;
@@ -108,6 +112,24 @@ pub extern "kernel32" fn CreatePseudoConsole(
 ) callconv(.winapi) win.HRESULT;
 
 pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) win.HINSTANCE;
+
+pub extern "kernel32" fn GetConsoleMode(
+    hConsoleHandle: win.HANDLE,
+    lpMode: *win.DWORD,
+) callconv(.winapi) win.BOOL;
+
+pub extern "kernel32" fn SetConsoleMode(
+    hConsoleHandle: win.HANDLE,
+    dwMode: win.DWORD,
+) callconv(.winapi) win.BOOL;
+
+pub extern "kernel32" fn ReadConsoleW(
+    hConsoleInput: win.HANDLE,
+    lpBuffer: win.LPVOID,
+    nNumberOfCharsToRead: win.DWORD,
+    lpNumberOfCharsRead: *win.DWORD,
+    pInputControl: ?*win.LPVOID,
+) callconv(.winapi) win.BOOL;
 
 extern "user32" fn RegisterClassExW(window_class: *const WNDCLASSEXW) callconv(.winapi) win.ATOM;
 
@@ -221,18 +243,17 @@ pub fn ReadFromPipe(handle: win.HANDLE, bufsize: comptime_int, read_handle: win.
     var dwRead: usize = undefined;
     var chBuf: [bufsize]win.CHAR = undefined;
 
-    std.debug.print("2 before loop\n", .{});
+    std.debug.print("[read thread] begin loop\n", .{});
     while (true) {
-        std.debug.print("2.1 read\n", .{});
+        std.debug.print("\n[read thread] reading\n", .{});
         dwRead = try win.ReadFile(read_handle, &chBuf, null);
         if (dwRead == 0) break;
 
-        std.debug.print("2.2 write\n", .{});
+        std.debug.print("\n[read thread] writing\n", .{});
         _ = win.WriteFile(handle, chBuf[0..dwRead], null) catch {};
-        std.debug.print("\n2.3 end\n", .{});
     }
 
-    std.debug.print("2 after loop\n", .{});
+    std.debug.print("[read thread] end loop\n", .{});
     win.CloseHandle(read_handle);
 }
 
